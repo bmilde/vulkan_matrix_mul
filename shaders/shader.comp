@@ -1,0 +1,29 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(binding = 0) buffer MatrixA {
+    float a[];
+};
+
+layout(binding = 1) buffer MatrixB {
+    float b[];
+};
+
+layout(binding = 2) buffer MatrixC {
+    float c[];
+};
+
+layout(push_constant) uniform PushConstants {
+    int matrix_size;
+} constants;
+
+void main() {
+    uint row = gl_GlobalInvocationID.y;
+    uint col = gl_GlobalInvocationID.x;
+    float result = 0.0;
+    for (uint k = 0; k < constants.matrix_size; ++k) {
+        result += a[row * constants.matrix_size + k] * b[k * constants.matrix_size + col];
+    }
+    c[row * constants.matrix_size + col] = result;
+}
