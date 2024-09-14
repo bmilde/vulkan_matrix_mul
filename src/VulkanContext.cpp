@@ -15,7 +15,7 @@ std::vector<char> readFile(const std::string& filename) {
     size_t fileSize = (size_t)file.tellg();
     std::vector<char> buffer(fileSize);
 
-    file.seekg(0); 
+    file.seekg(0);
     file.read(buffer.data(), fileSize);
     file.close();
 
@@ -76,7 +76,6 @@ void VulkanContext::pickPhysicalDevice() {
     std::vector<VkPhysicalDevice> devices(deviceCount);
     vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
 
-    // Pick the first device with compute capability
     for (const auto& device : devices) {
         VkPhysicalDeviceProperties deviceProperties;
         vkGetPhysicalDeviceProperties(device, &deviceProperties);
@@ -297,6 +296,7 @@ void VulkanContext::createBuffers(float* matrixA, float* matrixB, float* matrixC
 
     VkDeviceSize bufferSize = sizeof(float) * matrix_size * matrix_size;
 
+    // Buffer A
     VkBufferCreateInfo bufferInfoA{};
     bufferInfoA.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     bufferInfoA.size = bufferSize;
@@ -309,6 +309,7 @@ void VulkanContext::createBuffers(float* matrixA, float* matrixB, float* matrixC
 
     allocateBufferMemory(bufferA, &bufferMemoryA, bufferSize, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
+    // Buffer B
     VkBufferCreateInfo bufferInfoB{};
     bufferInfoB.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     bufferInfoB.size = bufferSize;
@@ -321,6 +322,7 @@ void VulkanContext::createBuffers(float* matrixA, float* matrixB, float* matrixC
 
     allocateBufferMemory(bufferB, &bufferMemoryB, bufferSize, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
+    // Buffer C
     VkBufferCreateInfo bufferInfoC{};
     bufferInfoC.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     bufferInfoC.size = bufferSize;
@@ -370,6 +372,11 @@ uint32_t VulkanContext::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlag
 void VulkanContext::runComputeShader(float* matrixA, float* matrixB, float* matrixC, int matrix_size) {
     std::cout << "Running Compute Shader..." << std::endl;
 
+    // Reset the descriptor pool between iterations to free up resources
+    std::cout << "Resetting descriptor pool..." << std::endl;
+    vkResetDescriptorPool(device, descriptorPool, 0);
+
+    // Create or update buffers as necessary
     createBuffers(matrixA, matrixB, matrixC, matrix_size);
 
     VkCommandBufferAllocateInfo allocInfo{};
@@ -378,6 +385,7 @@ void VulkanContext::runComputeShader(float* matrixA, float* matrixB, float* matr
     allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     allocInfo.commandBufferCount = 1;
 
+    std::cout << "Allocating command buffer..." << std::endl;
     if (vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer) != VK_SUCCESS) {
         throw std::runtime_error("Failed to allocate command buffer!");
     }
@@ -386,18 +394,24 @@ void VulkanContext::runComputeShader(float* matrixA, float* matrixB, float* matr
     beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
+    std::cout << "Beginning command buffer..." << std::endl;
     if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
         throw std::runtime_error("Failed to begin command buffer!");
     }
 
+    std::cout << "Binding compute pipeline..." << std::endl;
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
+
+    std::cout << "Binding descriptor sets..." << std::endl;
     vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
 
     uint32_t groupCountX = (matrixSize + 15) / 16;
     uint32_t groupCountY = (matrixSize + 15) / 16;
 
+    std::cout << "Dispatching compute shader..." << std::endl;
     vkCmdDispatch(commandBuffer, groupCountX, groupCountY, 1);
 
+    std::cout << "Ending command buffer..." << std::endl;
     if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
         throw std::runtime_error("Failed to record command buffer!");
     }
@@ -411,23 +425,28 @@ void VulkanContext::runComputeShader(float* matrixA, float* matrixB, float* matr
     VkFenceCreateInfo fenceInfo{};
     fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
 
+    std::cout << "Creating fence..." << std::endl;
     if (vkCreateFence(device, &fenceInfo, nullptr, &fence) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create fence!");
     }
 
+    std::cout << "Submitting command buffer..." << std::endl;
     if (vkQueueSubmit(computeQueue, 1, &submitInfo, fence) != VK_SUCCESS) {
         throw std::runtime_error("Failed to submit compute command buffer!");
     }
 
+    std::cout << "Waiting for fence..." << std::endl;
     vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
 
     vkDestroyFence(device, fence, nullptr);
 
     void* data;
+    std::cout << "Reading back result from buffer C..." << std::endl;
     vkMapMemory(device, bufferMemoryC, 0, sizeof(float) * matrixSize * matrixSize, 0, &data);
     memcpy(matrixC, data, sizeof(float) * matrixSize * matrixSize);
     vkUnmapMemory(device, bufferMemoryC);
 
+    std::cout << "Freeing command buffer..." << std::endl;
     vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 
     std::cout << "Compute Shader completed successfully." << std::endl;
@@ -453,4 +472,3 @@ void VulkanContext::cleanup() {
 
     std::cout << "Vulkan resources cleaned up successfully." << std::endl;
 }
-
